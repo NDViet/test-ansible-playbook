@@ -1,0 +1,158 @@
+- name: Install dependencies
+  apt:
+    name:
+      - ca-certificates
+      - curl
+      - wget
+      - jq
+      - conntrack
+    state: present
+    update_cache: yes
+
+- name: Add Docker GPG key
+  apt_key:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    state: present
+
+- name: Add Docker repository
+  apt_repository:
+    repo: "deb [arch={{ ansible_architecture }} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+    state: present
+
+- name: Install Docker
+  apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+      - gcc-aarch64-linux-gnu
+      - qemu-user-static
+    state: present
+
+- name: Install Docker Compose
+  get_url:
+    url: "https://github.com/docker/compose/releases/download/{{ docker_compose_version }}/docker-compose-linux-{{ machine_hardware_name }}"
+    dest: /usr/libexec/docker/cli-plugins/docker-compose
+    mode: '0755'
+
+- name: Install Docker SBOMs plugin
+  shell: curl -sSfL https://raw.githubusercontent.com/docker/sbom-cli-plugin/main/install.sh | sh -s --
+
+- name: Install Minikube
+  when: cluster == "minikube"
+  get_url:
+    url: "https://storage.googleapis.com/minikube/releases/latest/minikube-linux-{{ ansible_architecture }}"
+    dest: /usr/local/bin/minikube
+    mode: '0755'
+
+- name: Install Go
+  get_url:
+    url: "https://go.dev/dl/go{{ go_version }}.linux-{{ ansible_architecture }}.tar.gz"
+    dest: /tmp/go.tar.gz
+
+- name: Extract Go
+  unarchive:
+    src: /tmp/go.tar.gz
+    dest: /usr/local
+    remote_src: yes
+
+- name: Create symlink for Go
+  file:
+    src: /usr/local/go/bin/go
+    dest: /usr/bin/go
+    state: link
+
+- name: Install CRI-CTL
+  get_url:
+    url: "https://github.com/kubernetes-sigs/cri-tools/releases/download/{{ crictl_version }}/crictl-{{ crictl_version }}-linux-{{ ansible_architecture }}.tar.gz"
+    dest: /tmp/crictl.tar.gz
+
+- name: Extract CRI-CTL
+  unarchive:
+    src: /tmp/crictl.tar.gz
+    dest: /usr/local/bin
+    remote_src: yes
+
+- name: Install CRI-Dockerd
+  get_url:
+    url: "https://github.com/Mirantis/cri-dockerd/releases/download/v{{ cri_dockerd_version }}/cri-dockerd-{{ cri_dockerd_version }}.{{ ansible_architecture }}.tgz"
+    dest: /tmp/cri-dockerd.tgz
+
+- name: Extract CRI-Dockerd
+  unarchive:
+    src: /tmp/cri-dockerd.tgz
+    dest: /tmp
+    remote_src: yes
+
+- name: Move CRI-Dockerd binary
+  command: mv /tmp/cri-dockerd/cri-dockerd /usr/local/bin/cri-dockerd
+
+- name: Install CNI-Plugins
+  get_url:
+    url: "https://github.com/containernetworking/plugins/releases/download/{{ cni_plugin_version }}/cni-plugins-linux-{{ ansible_architecture }}-{{ cni_plugin_version }}.tgz"
+    dest: /tmp/cni-plugins.tgz
+
+- name: Extract CNI-Plugins
+  unarchive:
+    src: /tmp/cni-plugins.tgz
+    dest: /opt/cni/bin
+    remote_src: yes
+
+- name: Install kubectl
+  get_url:
+    url: "https://dl.k8s.io/release/{{ kubernetes_version }}/bin/linux/{{ ansible_architecture }}/kubectl"
+    dest: /usr/local/bin/kubectl
+    mode: '0755'
+
+- name: Lookup latest Helm version if helm_version is set to "latest"
+  set_fact:
+    helm_version: "{{ lookup('pipe', 'curl -s https://api.github.com/repos/helm/helm/releases/latest | jq -r .tag_name') }}"
+  when: helm_version == "latest"
+
+- name: Install Helm
+  get_url:
+    url: "https://get.helm.sh/helm-{{ helm_version }}-linux-{{ ansible_architecture }}.tar.gz"
+    dest: /tmp/helm.tar.gz
+
+- name: Extract Helm
+  command: bash -c "mkdir -p /tmp/helm; tar -xf /tmp/helm.tar.gz --strip-components 1 -C /tmp/helm"
+
+- name: Move Helm binary
+  command: mv /tmp/helm/helm /usr/local/bin/helm
+
+- name: Install chart-testing
+  get_url:
+    url: "https://github.com/helm/chart-testing/releases/download/v{{ chart_testing_version }}/chart-testing_{{ chart_testing_version }}_linux_{{ ansible_architecture }}.tar.gz"
+    dest: /tmp/ct.tar.gz
+
+- name: Extract chart-testing
+  unarchive:
+    src: /tmp/ct.tar.gz
+    dest: /opt/ct
+    remote_src: yes
+
+- name: Create symlink for chart-testing
+  file:
+    src: /opt/ct/ct
+    dest: /usr/bin/ct
+    state: link
+
+- name: Install helm-docs
+  shell: GOBIN=$HOME/go/bin go install github.com/norwoodj/helm-docs/cmd/helm-docs@latest
+
+- name: Install envsubst
+  get_url:
+    url: "https://github.com/a8m/envsubst/releases/download/{{ envsubst_version }}/envsubst-{{ ansible_system }}-{{ machine_hardware_name }}"
+    dest: /usr/local/bin/envsubst
+    mode: '0755'
+
+- name: Install Node using NVM
+  shell: |
+    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/{{ nvm_version }}/install.sh | bash
+    export NVM_DIR="$HOME/.nvm"
+    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+    [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+    source $HOME/.bashrc
+    nvm install {{ node_version }}

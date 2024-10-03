@@ -1,0 +1,5 @@
+- name: Provision development environment
+  hosts: local
+  become: yes
+  roles:
+    - common
